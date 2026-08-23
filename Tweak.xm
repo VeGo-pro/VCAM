@@ -289,26 +289,37 @@ static void handleVolumeChange(NSNotification *note) {
 
 %ctor {
     @autoreleasepool {
-        g_pickerDelegate = [[VCamImagePickerControllerDelegate alloc] init];
-        
-        NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
-        if (![bundleID isEqualToString:@"com.apple.springboard"]) {
-            %init(VCamHooks);
+        // 扩展进程（.appex）内存限制低，不加载插件，避免崩溃
+        if ([[[NSBundle mainBundle] bundlePath] rangeOfString:@".appex"].location != NSNotFound) {
+            return;
         }
 
-        // 注册音量键双击监听
-        [[NSNotificationCenter defaultCenter] addObserverForName:@"AVSystemController_SystemVolumeDidChangeNotification"
-            object:nil
-            queue:[NSOperationQueue mainQueue]
-            usingBlock:^(NSNotification *note) {
-                handleVolumeChange(note);
-            }];
+        @try {
+            g_pickerDelegate = [[VCamImagePickerControllerDelegate alloc] init];
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-            dispatch_get_main_queue(), ^{
-                @autoreleasepool {
-                    setupFloatButton();
-                }
-            });
+            NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+            if (![bundleID isEqualToString:@"com.apple.springboard"]) {
+                %init(VCamHooks);
+            }
+
+            // 注册音量键双击监听
+            [[NSNotificationCenter defaultCenter] addObserverForName:@"AVSystemController_SystemVolumeDidChangeNotification"
+                object:nil
+                queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *note) {
+                    @try {
+                        handleVolumeChange(note);
+                    } @catch (NSException *e) {}
+                }];
+
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                    @try {
+                        setupFloatButton();
+                    } @catch (NSException *e) {}
+                });
+        } @catch (NSException *e) {
+            // 静默失败，不拖垮宿主 App
+        }
     }
 }
