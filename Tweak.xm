@@ -16,6 +16,10 @@ static UIButton *g_floatButton = nil;
 // MARK: - 悬浮按钮 UI
 // ============================================================================
 
+static void setupFloatButton(void);
+static void handlePanGesture(UIPanGestureRecognizer *gesture);
+static void handleTapGesture(UITapGestureRecognizer *gesture);
+
 @interface VCamFloatButton : UIButton
 @property (nonatomic, assign) CGPoint initialCenter;
 @end
@@ -24,10 +28,6 @@ static UIButton *g_floatButton = nil;
 - (void)handlePan:(UIPanGestureRecognizer *)gesture { handlePanGesture(gesture); }
 - (void)handleTap:(UITapGestureRecognizer *)gesture { handleTapGesture(gesture); }
 @end
-
-static void setupFloatButton(void);
-static void handlePanGesture(UIPanGestureRecognizer *gesture);
-static void handleTapGesture(UITapGestureRecognizer *gesture);
 
 static void setupFloatButton() {
     if (g_floatButton) return;
