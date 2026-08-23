@@ -8,76 +8,76 @@ on:
 jobs:
   build:
     runs-on: macos-14
+    env:
+      THEOS: ${{ github.workspace }}/theos
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Diagnose environment
+    - name: Check environment
       run: |
-        echo "=== xcode-select ==="
+        echo "=== Workspace ==="
+        pwd
+        ls -la
+        echo "=== Xcode ==="
         xcode-select -p 2>&1 || true
-        echo "=== Xcode version ==="
-        xcodebuild -version 2>&1 || true
-        echo "=== iPhoneOS SDKs (Xcode.app) ==="
-        ls /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ 2>&1 || true
-        echo "=== xcrun iphoneos sdk path ==="
         xcrun --sdk iphoneos --show-sdk-path 2>&1 || true
-        echo "=== all sdks via xcodebuild ==="
-        xcodebuild -showsdks 2>&1 | head -30 || true
-        echo "=== tools ==="
-        which clang make tar cpio gzip xcrun 2>&1 || true
+        echo "=== THEOS env ==="
+        echo "THEOS=$THEOS"
 
-    - name: Install Theos
+    - name: Install Theos (official installer)
       run: |
-        export THEOS=$HOME/theos
+        export THEOS=${{ github.workspace }}/theos
         rm -rf "$THEOS"
-        git clone --depth 1 https://github.com/theos/theos.git "$THEOS"
-        cd "$THEOS"
-        git submodule update --init --recursive
+        # Use official Theos installer
+        curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos -o /tmp/install-theos
+        bash /tmp/install-theos
         echo "THEOS=$THEOS" >> $GITHUB_ENV
         echo "PATH=$THEOS/bin:$PATH" >> $GITHUB_ENV
-        echo "Theos installed, sdks dir:"
+        echo "=== Theos installed ==="
+        ls "$THEOS" 2>&1 | head -20
+        echo "=== Theos sdks ==="
         ls "$THEOS/sdks/" 2>&1 || true
+        echo "=== Theos makefiles ==="
+        ls "$THEOS/makefiles/" 2>&1 | head -10
 
-    - name: Setup SDK
+    - name: Link Xcode SDK
       run: |
         mkdir -p "$THEOS/sdks"
-        # Try xcrun first
         XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
         if [ -z "$XCODE_SDK" ] || [ ! -d "$XCODE_SDK" ]; then
-          # Fallback: search common paths
           XCODE_SDK=$(ls -d /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS*.sdk 2>/dev/null | head -1 || true)
         fi
         if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK" ]; then
           SDK_BASENAME=$(basename "$XCODE_SDK")
           ln -sfn "$XCODE_SDK" "$THEOS/sdks/$SDK_BASENAME"
-          echo "Linked SDK: $SDK_BASENAME -> $XCODE_SDK"
+          echo "Linked: $SDK_BASENAME"
         else
-          echo "WARNING: No iPhoneOS SDK found on system"
+          echo "No SDK found!"
         fi
-        echo "Theos sdks:"
-        ls -la "$THEOS/sdks/" 2>&1 || true
+        ls -la "$THEOS/sdks/"
 
-    - name: Build package
+    - name: Build
       run: |
-        export THEOS=$HOME/theos
+        export THEOS=${{ github.workspace }}/theos
         export PATH=$THEOS/bin:$PATH
-        echo "=== THEOS=$THEOS ==="
-        echo "=== Available SDKs ==="
-        ls "$THEOS/sdks/" 2>&1 || true
+        echo "=== Verify Theos ==="
+        ls "$THEOS/makefiles/common.mk" 2>&1 || echo "common.mk NOT FOUND"
+        ls "$THEOS/makefiles/tweak.mk" 2>&1 || echo "tweak.mk NOT FOUND"
+        echo "=== SDKs ==="
+        ls "$THEOS/sdks/" 2>&1
         echo "=== make clean ==="
         make clean 2>&1 || true
-        echo "=== make package (verbose) ==="
-        make package FINALPACKAGE=1 V=1 2>&1
-        echo "=== Build result ==="
-        ls -lh packages/ 2>&1 || echo "No packages dir"
+        echo "=== make package ==="
+        make package FINALPACKAGE=1 2>&1
+        echo "=== result ==="
+        ls -lh packages/ 2>&1
 
-    - name: Extract artifacts
+    - name: Package artifacts
       if: success()
       run: |
         mkdir -p output
-        DEB=$(ls packages/*.deb 2>/dev/null | head -1)
-        if [ -z "$DEB" ]; then echo "No deb!"; exit 1; fi
+        DEB=$(ls packages/*.deb | head -1)
         cp "$DEB" output/
         cd output
         ar x ../packages/*.deb
