@@ -3,101 +3,73 @@ name: Build VCam
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build iOS Tweak
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Show environment
       run: |
-        brew install ldid xz
-      timeout-minutes: 10
+        echo "Xcode path:"
+        xcode-select -p
+        echo "Xcode version:"
+        xcodebuild -version 2>/dev/null || echo "xcodebuild not available"
+        echo "iPhoneOS SDKs:"
+        ls /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ 2>/dev/null || echo "No Xcode SDKs found"
+        echo "xcrun SDK path:"
+        xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "xcrun failed"
+        which clang make tar cpio gzip
 
     - name: Install Theos
       run: |
-        export THEOS=~/theos
-        git clone --recursive https://github.com/theos/theos.git ~/theos
-        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-        echo "PATH=$HOME/theos/bin:$PATH" >> $GITHUB_ENV
-      timeout-minutes: 15
+        export THEOS=$HOME/theos
+        git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+        echo "THEOS=$THEOS" >> $GITHUB_ENV
+        echo "PATH=$THEOS/bin:$PATH" >> $GITHUB_ENV
+        ls "$THEOS/sdks/" 2>/dev/null || echo "Theos sdks dir empty"
 
-    - name: Setup iOS SDK
+    - name: Link Xcode SDK into Theos
       run: |
-        mkdir -p $HOME/theos/sdks
-        # Use Xcode's built-in iPhoneOS SDK (most reliable on macOS runners)
+        mkdir -p "$THEOS/sdks"
         XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
         if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK" ]; then
-          SDK_NAME=$(basename "$XCODE_SDK")
-          ln -sf "$XCODE_SDK" "$HOME/theos/sdks/$SDK_NAME"
-          echo "Symlinked Xcode SDK: $SDK_NAME"
+          SDK_BASENAME=$(basename "$XCODE_SDK")
+          ln -s "$XCODE_SDK" "$THEOS/sdks/$SDK_BASENAME"
+          echo "Linked SDK: $SDK_BASENAME"
         else
-          echo "Xcode SDK not found, trying download..."
-          # Fallback: download from theos/sdks latest release via API
-          DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/theos/sdks/releases/latest \
-            | grep "browser_download_url.*iPhoneOS.*\.tar\.xz" \
-            | head -1 | cut -d '"' -f 4)
-          if [ -n "$DOWNLOAD_URL" ]; then
-            echo "Downloading from: $DOWNLOAD_URL"
-            curl -fsSL "$DOWNLOAD_URL" -o /tmp/sdk.tar.xz
-            tar -xf /tmp/sdk.tar.xz -C $HOME/theos/sdks
-          else
-            echo "ERROR: Could not obtain any SDK!"
-            exit 1
-          fi
+          echo "WARNING: No Xcode SDK found, will try Theos auto-detection"
         fi
-        echo "Available SDKs:"
-        ls -la $HOME/theos/sdks/
-      timeout-minutes: 10
+        echo "Theos sdks:"
+        ls -la "$THEOS/sdks/"
 
-    - name: Build Tweak
+    - name: Build package
       run: |
-        export THEOS=$HOME/theos
-        export PATH=$HOME/theos/bin:$PATH
         make clean
-        make package FINALPACKAGE=1 2>&1
-        echo "Build complete. Packages:"
-        ls -lh packages/ 2>/dev/null || echo "No packages dir"
-      timeout-minutes: 20
+        make package FINALPACKAGE=1
+        echo "=== Packages ==="
+        ls -lh packages/
 
-    - name: Extract artifacts
+    - name: Extract dylib
       run: |
         mkdir -p output
-        DEB=$(ls packages/*.deb 2>/dev/null | head -1)
-        if [ -z "$DEB" ]; then
-          echo "No deb found!"
-          exit 1
-        fi
-        echo "Found: $DEB"
+        DEB=$(ls packages/*.deb | head -1)
         cp "$DEB" output/
         cd output
-        ar x ../packages/*.deb 2>/dev/null
-        if [ -f data.tar.xz ]; then
-          tar -xf data.tar.xz
-        elif [ -f data.tar.gz ]; then
-          tar -xf data.tar.gz
-        elif [ -f data.tar.zst ]; then
-          tar -xf data.tar.zst
-        fi
-        find . -name "*.dylib" -exec cp {} ./VCam.dylib \; 2>/dev/null
+        ar x ../packages/*.deb
+        tar -xf data.tar.* 2>/dev/null
+        find . -name "*.dylib" -exec cp {} VCam.dylib \;
         ls -lh
 
-    - name: Upload dylib
-      uses: actions/upload-artifact@v4
-      with:
-        name: VCam-dylib
-        path: output/VCam.dylib
-        retention-days: 30
-
-    - name: Upload deb
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
         name: VCam-deb
         path: output/*.deb
-        retention-days: 30
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: VCam-dylib
+        path: output/VCam.dylib
