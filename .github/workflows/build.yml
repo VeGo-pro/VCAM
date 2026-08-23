@@ -28,29 +28,33 @@ jobs:
         echo "PATH=$HOME/theos/bin:$PATH" >> $GITHUB_ENV
       timeout-minutes: 15
 
-    - name: Install iOS SDK
+    - name: Setup iOS SDK
       run: |
         mkdir -p $HOME/theos/sdks
-        # Try release tarball first, fall back to git clone
-        SDK_TARBALL="https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz"
-        if curl -fsSL "$SDK_TARBALL" -o /tmp/sdk.tar.xz 2>/dev/null; then
-          echo "Downloaded SDK from release"
-          tar -xf /tmp/sdk.tar.xz -C $HOME/theos/sdks
+        # Use Xcode's built-in iPhoneOS SDK (most reliable on macOS runners)
+        XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+        if [ -n "$XCODE_SDK" ] && [ -d "$XCODE_SDK" ]; then
+          SDK_NAME=$(basename "$XCODE_SDK")
+          ln -sf "$XCODE_SDK" "$HOME/theos/sdks/$SDK_NAME"
+          echo "Symlinked Xcode SDK: $SDK_NAME"
         else
-          echo "Release tarball unavailable, cloning sdks repo..."
-          git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
-          # Copy the newest available SDK
-          LATEST_SDK=$(ls -d /tmp/theos-sdks/iPhoneOS*.sdk 2>/dev/null | sort -V | tail -1)
-          if [ -z "$LATEST_SDK" ]; then
-            echo "ERROR: No SDK found in repo!"
+          echo "Xcode SDK not found, trying download..."
+          # Fallback: download from theos/sdks latest release via API
+          DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/theos/sdks/releases/latest \
+            | grep "browser_download_url.*iPhoneOS.*\.tar\.xz" \
+            | head -1 | cut -d '"' -f 4)
+          if [ -n "$DOWNLOAD_URL" ]; then
+            echo "Downloading from: $DOWNLOAD_URL"
+            curl -fsSL "$DOWNLOAD_URL" -o /tmp/sdk.tar.xz
+            tar -xf /tmp/sdk.tar.xz -C $HOME/theos/sdks
+          else
+            echo "ERROR: Could not obtain any SDK!"
             exit 1
           fi
-          echo "Using SDK: $LATEST_SDK"
-          cp -r "$LATEST_SDK" $HOME/theos/sdks/
         fi
-        echo "Installed SDKs:"
-        ls $HOME/theos/sdks/
-      timeout-minutes: 15
+        echo "Available SDKs:"
+        ls -la $HOME/theos/sdks/
+      timeout-minutes: 10
 
     - name: Build Tweak
       run: |
@@ -72,7 +76,6 @@ jobs:
         fi
         echo "Found: $DEB"
         cp "$DEB" output/
-        # Extract dylib from deb
         cd output
         ar x ../packages/*.deb 2>/dev/null
         if [ -f data.tar.xz ]; then
