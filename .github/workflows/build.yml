@@ -10,7 +10,7 @@ jobs:
   build:
     name: Build iOS Tweak
     runs-on: macos-14
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -26,16 +26,31 @@ jobs:
         git clone --recursive https://github.com/theos/theos.git ~/theos
         echo "THEOS=$HOME/theos" >> $GITHUB_ENV
         echo "PATH=$HOME/theos/bin:$PATH" >> $GITHUB_ENV
-      timeout-minutes: 10
+      timeout-minutes: 15
 
     - name: Install iOS SDK
       run: |
-        curl -fsSL https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o /tmp/sdk.tar.xz
         mkdir -p $HOME/theos/sdks
-        tar -xf /tmp/sdk.tar.xz -C $HOME/theos/sdks
+        # Try release tarball first, fall back to git clone
+        SDK_TARBALL="https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz"
+        if curl -fsSL "$SDK_TARBALL" -o /tmp/sdk.tar.xz 2>/dev/null; then
+          echo "Downloaded SDK from release"
+          tar -xf /tmp/sdk.tar.xz -C $HOME/theos/sdks
+        else
+          echo "Release tarball unavailable, cloning sdks repo..."
+          git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
+          # Copy the newest available SDK
+          LATEST_SDK=$(ls -d /tmp/theos-sdks/iPhoneOS*.sdk 2>/dev/null | sort -V | tail -1)
+          if [ -z "$LATEST_SDK" ]; then
+            echo "ERROR: No SDK found in repo!"
+            exit 1
+          fi
+          echo "Using SDK: $LATEST_SDK"
+          cp -r "$LATEST_SDK" $HOME/theos/sdks/
+        fi
         echo "Installed SDKs:"
         ls $HOME/theos/sdks/
-      timeout-minutes: 10
+      timeout-minutes: 15
 
     - name: Build Tweak
       run: |
@@ -45,9 +60,9 @@ jobs:
         make package FINALPACKAGE=1 2>&1
         echo "Build complete. Packages:"
         ls -lh packages/ 2>/dev/null || echo "No packages dir"
-      timeout-minutes: 15
+      timeout-minutes: 20
 
-    - name: Extract dylib
+    - name: Extract artifacts
       run: |
         mkdir -p output
         DEB=$(ls packages/*.deb 2>/dev/null | head -1)
@@ -57,12 +72,17 @@ jobs:
         fi
         echo "Found: $DEB"
         cp "$DEB" output/
+        # Extract dylib from deb
         cd output
-        ar x ../packages/*.deb 2>/dev/null || dpkg-deb -x "$DEB" .
-        # Try to find dylib in extracted contents
+        ar x ../packages/*.deb 2>/dev/null
+        if [ -f data.tar.xz ]; then
+          tar -xf data.tar.xz
+        elif [ -f data.tar.gz ]; then
+          tar -xf data.tar.gz
+        elif [ -f data.tar.zst ]; then
+          tar -xf data.tar.zst
+        fi
         find . -name "*.dylib" -exec cp {} ./VCam.dylib \; 2>/dev/null
-        # If ar worked, try tar
-        tar -xf data.tar* 2>/dev/null && find . -name "*.dylib" -exec cp {} ./VCam.dylib \; 2>/dev/null
         ls -lh
 
     - name: Upload dylib
