@@ -36,8 +36,11 @@ static void handleTapGesture(UITapGestureRecognizer *gesture);
 
 @implementation VCamOverlayWindow
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    if (self.touchTarget && CGRectContainsPoint(self.touchTarget.frame, point)) {
-        return [self.touchTarget hitTest:point withEvent:event];
+    if (self.touchTarget) {
+        CGPoint pointInButton = [self.touchTarget convertPoint:point fromView:self];
+        if ([self.touchTarget pointInside:pointInButton withEvent:event]) {
+            return [self.touchTarget hitTest:pointInButton withEvent:event];
+        }
     }
     return nil; // 穿透
 }
@@ -148,19 +151,19 @@ static UIViewController *findTopViewController(void) {
 @end
 
 static VCamImagePickerControllerDelegate *g_pickerDelegate = nil;
+static NSTimeInterval g_lastVolumeTime = 0;
 
-static void handleTapGesture(UITapGestureRecognizer *gesture) {
+static void showVCamMenu(UIView *sourceView) {
     UIViewController *topVC = findTopViewController();
     if (!topVC) return;
-    
-    UIAlertController *alert = [UIAlertController 
-        alertControllerWithTitle:@"VCam" 
+
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"VCam"
         message:g_vcamEnabled ? @"虚拟相机已启用" : @"虚拟相机已关闭"
         preferredStyle:UIAlertControllerStyleActionSheet];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"选择视频" 
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"选择视频"
         style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        
         if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeSavedPhotosAlbum]) {
             return;
         }
@@ -170,12 +173,12 @@ static void handleTapGesture(UITapGestureRecognizer *gesture) {
         picker.delegate = g_pickerDelegate;
         [topVC presentViewController:picker animated:YES completion:nil];
     }]];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:g_vcamEnabled ? @"关闭虚拟相机" : @"开启虚拟相机" 
+
+    [alert addAction:[UIAlertAction actionWithTitle:g_vcamEnabled ? @"关闭虚拟相机" : @"开启虚拟相机"
         style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         g_vcamEnabled = !g_vcamEnabled;
         if (g_floatButton) {
-            g_floatButton.backgroundColor = g_vcamEnabled 
+            g_floatButton.backgroundColor = g_vcamEnabled
                 ? [UIColor colorWithRed:0.2 green:0.8 blue:0.4 alpha:0.9]
                 : [UIColor colorWithRed:0.4 green:0.4 blue:0.4 alpha:0.9];
         }
@@ -185,15 +188,37 @@ static void handleTapGesture(UITapGestureRecognizer *gesture) {
             [[MediaManager sharedManager] stop];
         }
     }]];
-    
+
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    
+
     if (alert.popoverPresentationController) {
-        alert.popoverPresentationController.sourceView = gesture.view;
-        alert.popoverPresentationController.sourceRect = gesture.view.bounds;
+        if (sourceView) {
+            alert.popoverPresentationController.sourceView = sourceView;
+            alert.popoverPresentationController.sourceRect = sourceView.bounds;
+        } else {
+            alert.popoverPresentationController.sourceView = topVC.view;
+            alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 1, 1);
+        }
     }
-    
+
     [topVC presentViewController:alert animated:YES completion:nil];
+}
+
+static void handleTapGesture(UITapGestureRecognizer *gesture) {
+    showVCamMenu(gesture.view);
+}
+
+// 双击音量键召唤菜单
+static void handleVolumeChange(NSNotification *note) {
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (g_lastVolumeTime > 0 && now - g_lastVolumeTime < 0.8) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            showVCamMenu(nil);
+        });
+        g_lastVolumeTime = 0;
+    } else {
+        g_lastVolumeTime = now;
+    }
 }
 
 // ============================================================================
@@ -263,8 +288,16 @@ static void handleTapGesture(UITapGestureRecognizer *gesture) {
         if (![bundleID isEqualToString:@"com.apple.springboard"]) {
             %init(VCamHooks);
         }
-        
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), 
+
+        // 注册音量键双击监听
+        [[NSNotificationCenter defaultCenter] addObserverForName:@"AVSystemController_SystemVolumeDidChangeNotification"
+            object:nil
+            queue:[NSOperationQueue mainQueue]
+            usingBlock:^(NSNotification *note) {
+                handleVolumeChange(note);
+            }];
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
             dispatch_get_main_queue(), ^{
                 @autoreleasepool {
                     setupFloatButton();
