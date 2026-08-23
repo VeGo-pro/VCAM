@@ -21,6 +21,8 @@ static UIButton *g_floatButton = nil;
 @end
 
 @implementation VCamFloatButton
+- (void)handlePan:(UIPanGestureRecognizer *)gesture { handlePanGesture(gesture); }
+- (void)handleTap:(UITapGestureRecognizer *)gesture { handleTapGesture(gesture); }
 @end
 
 static void setupFloatButton(void);
@@ -33,7 +35,7 @@ static void setupFloatButton() {
     CGFloat btnSize = 50;
     CGRect screen = [UIScreen mainScreen].bounds;
     
-    g_floatButton = [VCamFloatButton buttonWithType:UIButtonTypeSystem];
+    g_floatButton = [[VCamFloatButton alloc] initWithFrame:CGRectZero];
     g_floatButton.frame = CGRectMake(screen.size.width - btnSize - 15, 100, btnSize, btnSize);
     g_floatButton.layer.cornerRadius = btnSize / 2.0;
     g_floatButton.layer.shadowColor = [UIColor blackColor].CGColor;
@@ -64,12 +66,6 @@ static void setupFloatButton() {
     rootVC.view.backgroundColor = [UIColor clearColor];
     [rootVC.view addSubview:g_floatButton];
     g_overlayWindow.rootViewController = rootVC;
-    
-    // Register selectors on the button class
-    class_addMethod([g_floatButton class], @selector(handlePan:), 
-                    (IMP)handlePanGesture, "v@:@");
-    class_addMethod([g_floatButton class], @selector(handleTap:), 
-                    (IMP)handleTapGesture, "v@:@");
 }
 
 static void handlePanGesture(UIPanGestureRecognizer *gesture) {
