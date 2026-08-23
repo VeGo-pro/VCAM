@@ -75,7 +75,7 @@ static void setupFloatButton() {
     [g_floatButton addGestureRecognizer:tap];
     
     g_overlayWindow = [[VCamOverlayWindow alloc] initWithFrame:screen];
-    g_overlayWindow.windowLevel = UIWindowLevelAlert + 100;
+    g_overlayWindow.windowLevel = UIWindowLevelAlert - 1;
     g_overlayWindow.hidden = NO;
     g_overlayWindow.backgroundColor = [UIColor clearColor];
     ((VCamOverlayWindow *)g_overlayWindow).touchTarget = g_floatButton;
@@ -157,6 +157,9 @@ static void showVCamMenu(UIView *sourceView) {
     UIViewController *topVC = findTopViewController();
     if (!topVC) return;
 
+    // 弹出菜单时临时隐藏悬浮窗，避免覆盖拦截触摸
+    g_overlayWindow.hidden = YES;
+
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"VCam"
         message:g_vcamEnabled ? @"虚拟相机已启用" : @"虚拟相机已关闭"
@@ -164,6 +167,7 @@ static void showVCamMenu(UIView *sourceView) {
 
     [alert addAction:[UIAlertAction actionWithTitle:@"选择视频"
         style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        g_overlayWindow.hidden = NO;
         if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeSavedPhotosAlbum]) {
             return;
         }
@@ -176,6 +180,7 @@ static void showVCamMenu(UIView *sourceView) {
 
     [alert addAction:[UIAlertAction actionWithTitle:g_vcamEnabled ? @"关闭虚拟相机" : @"开启虚拟相机"
         style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        g_overlayWindow.hidden = NO;
         g_vcamEnabled = !g_vcamEnabled;
         if (g_floatButton) {
             g_floatButton.backgroundColor = g_vcamEnabled
@@ -189,7 +194,9 @@ static void showVCamMenu(UIView *sourceView) {
         }
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        g_overlayWindow.hidden = NO;
+    }]];
 
     if (alert.popoverPresentationController) {
         if (sourceView) {
