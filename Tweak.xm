@@ -29,6 +29,20 @@ static void handleTapGesture(UITapGestureRecognizer *gesture);
 - (void)handleTap:(UITapGestureRecognizer *)gesture { handleTapGesture(gesture); }
 @end
 
+// 全屏悬浮窗口：只在按钮区域响应触摸，其他区域穿透到下层 App
+@interface VCamOverlayWindow : UIWindow
+@property (nonatomic, weak) UIView *touchTarget;
+@end
+
+@implementation VCamOverlayWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (self.touchTarget && CGRectContainsPoint(self.touchTarget.frame, point)) {
+        return [self.touchTarget hitTest:point withEvent:event];
+    }
+    return nil; // 穿透
+}
+@end
+
 static void setupFloatButton() {
     if (g_floatButton) return;
     
@@ -57,10 +71,11 @@ static void setupFloatButton() {
         initWithTarget:g_floatButton action:@selector(handleTap:)];
     [g_floatButton addGestureRecognizer:tap];
     
-    g_overlayWindow = [[UIWindow alloc] initWithFrame:screen];
+    g_overlayWindow = [[VCamOverlayWindow alloc] initWithFrame:screen];
     g_overlayWindow.windowLevel = UIWindowLevelAlert + 100;
     g_overlayWindow.hidden = NO;
     g_overlayWindow.backgroundColor = [UIColor clearColor];
+    ((VCamOverlayWindow *)g_overlayWindow).touchTarget = g_floatButton;
     
     UIViewController *rootVC = [[UIViewController alloc] init];
     rootVC.view.backgroundColor = [UIColor clearColor];
